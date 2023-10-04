@@ -136,6 +136,46 @@ class Routes {
     const fromId = (await User.getUserByUsername(from))._id;
     return await Friend.rejectRequest(fromId, user);
   }
+
+  // Retrieves the user's bookmarks
+  @Router.get("/bookmarks")
+  async getBookmarks(session: WebSessionDoc) {}
+
+  // Creates a new bookmark named "name" that directs to "destination" for user
+  @Router.post("/bookmarks")
+  async createBookmark(session: WebSessionDoc, name: string, destination: string) {}
+
+  // Deletes user's bookmark with id "bookmark"
+  @Router.delete("/bookmarks/:bookmark")
+  async deleteBookmark(session: WebSessionDoc, bookmark: string) {}
+
+  // Renames user's bookmark with is "bookmark" as "name"
+  @Router.patch("/bookmarks/")
+  async renameBookmark(session: WebSessionDoc, bookmark: string, name: string) {}
+
+  // Retrieves all the users that the user has restricted viewing access for
+  @Router.get("/viewingRestrictions")
+  async getRestrictedUsers(session: WebSessionDoc) {}
+
+  // Retrieves all the users that have restricted viewing access for item "item"
+  @Router.get("viewingRestrictions/:item")
+  async getRestrictedUsersForItem(session: WebSessionDoc, item: string) {}
+
+  // Adds a new item that can be restricted
+  @Router.post("viewingRestrictions/:item")
+  async addRestrictedItem(session: WebSessionDoc, item: string) {}
+
+  // Deletes an item that is currently being restricted
+  @Router.delete("viewingRestrictions/:item")
+  async deleteRestrictedItem(session: WebSessionDoc, item: string) {}
+
+  // Updates the restricted users to include the user "for"
+  @Router.put("viewingRestrictions/add/:user")
+  async addRestrictedUser(session: WebSessionDoc, user: string) {}
+
+  // Unrestricts a user by removing them from the restricted users
+  @Router.put("viewingRestrictions/remove/:user")
+  async removeRestrictedUser(session: WebSessionDoc, user: string) {}
 }
 
 export default getExpressRouter(new Routes());

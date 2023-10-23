@@ -57,7 +57,7 @@ export default class BookmarkConcept {
   }
 
   private sanitizeUpdate(update: Partial<BookmarkDoc>) {
-    // Make sure the update cannot change the author.
+    // Make sure the update cannot change the owner.
     const allowedUpdates = ["name", "destination"];
     for (const key in update) {
       if (!allowedUpdates.includes(key)) {

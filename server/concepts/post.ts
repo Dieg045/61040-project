@@ -54,6 +54,7 @@ export default class PostConcept {
     }
   }
 
+  //realized I can just use the update method
   async addRestrictedUser(user: ObjectId, _id: ObjectId) {
     const post = await this.posts.readOne({ _id });
     if (!post) {

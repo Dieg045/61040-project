@@ -2,7 +2,9 @@ import { ObjectId } from "mongodb";
 
 import { Router, getExpressRouter } from "./framework/router";
 
-import { Friend, Post, User, WebSession } from "./app";
+import { Bookmark, Friend, Gathering, Message, Post, User, WebSession } from "./app";
+import { BookmarkDoc } from "./concepts/bookmark";
+import { GatheringDoc } from "./concepts/gathering";
 import { PostDoc, PostOptions } from "./concepts/post";
 import { UserDoc } from "./concepts/user";
 import { WebSessionDoc } from "./concepts/websession";
@@ -57,15 +59,19 @@ class Routes {
     return { msg: "Logged out!" };
   }
 
-  @Router.get("/posts")
-  async getPosts(author?: string) {
+  @Router.get("/posts/:author")
+  async getPosts(session: WebSessionDoc, author: string) {
+    const author_id = (await User.getUserByUsername(author))._id;
+    const u_id = WebSession.getUser(session);
+
     let posts;
-    if (author) {
-      const id = (await User.getUserByUsername(author))._id;
-      posts = await Post.getByAuthor(id);
+    if (author_id.toString() === u_id.toString()) {
+      posts = await Post.getByAuthor(author_id);
     } else {
-      posts = await Post.getPosts({});
+      await Friend.isFriend(author_id, u_id);
+      posts = await Post.getPosts({ author: author_id, options: { restrictedUsers: { $nin: u_id } } });
     }
+
     return Responses.posts(posts);
   }
 
@@ -137,45 +143,124 @@ class Routes {
     return await Friend.rejectRequest(fromId, user);
   }
 
+  //started from here!
+
   // Retrieves the user's bookmarks
   @Router.get("/bookmarks")
-  async getBookmarks(session: WebSessionDoc) {}
+  async getBookmarks(session: WebSessionDoc) {
+    const user = WebSession.getUser(session);
+    return await Bookmark.getByOwner(user);
+  }
 
   // Creates a new bookmark named "name" that directs to "destination" for user
   @Router.post("/bookmarks")
-  async createBookmark(session: WebSessionDoc, name: string, destination: string) {}
+  async createBookmark(session: WebSessionDoc, name: string, destination: string) {
+    const user = WebSession.getUser(session);
+    const created = await Bookmark.create(user, name, destination);
+    return { msg: created.msg, bookmark: created.bookmark }; //might have to add Response formatting
+  }
 
   // Deletes user's bookmark with id "bookmark"
-  @Router.delete("/bookmarks/:bookmark")
-  async deleteBookmark(session: WebSessionDoc, bookmark: string) {}
+  @Router.delete("/bookmarks/:_id")
+  async deleteBookmark(session: WebSessionDoc, _id: ObjectId) {
+    const user = WebSession.getUser(session);
+    await Bookmark.isOwner(user, _id);
+    return Bookmark.delete(_id);
+  }
 
-  // Renames user's bookmark with is "bookmark" as "name"
-  @Router.patch("/bookmarks/")
-  async renameBookmark(session: WebSessionDoc, bookmark: string, name: string) {}
+  @Router.patch("/bookmarks/:_id")
+  async updateBookmark(session: WebSessionDoc, _id: ObjectId, update: Partial<BookmarkDoc>) {
+    const user = WebSession.getUser(session);
+    await Bookmark.isOwner(user, _id);
+    return await Bookmark.update(_id, update);
+  }
 
-  // Retrieves all the users that the user has restricted viewing access for
-  @Router.get("/viewingRestrictions")
-  async getRestrictedUsers(session: WebSessionDoc) {}
+  // Gets a Gathering by ID
+  @Router.get("/gathering/:_id")
+  async getGathering(session: WebSessionDoc, _id: ObjectId) {
+    const user = WebSession.getUser(session);
+    await Gathering.isInvited(user, _id);
+    return await Gathering.getById(_id);
+  }
 
-  // Retrieves all the users that have restricted viewing access for item "item"
-  @Router.get("viewingRestrictions/:item")
-  async getRestrictedUsersForItem(session: WebSessionDoc, item: string) {}
+  // Creates a Gathering
+  @Router.post("/gathering")
+  async createGathering(session: WebSessionDoc, title: string, description: string, hosts?: ObjectId[], invitees?: ObjectId[]) {
+    const user = WebSession.getUser(session);
+    const created = await Gathering.create(user, title, description);
+    if (created.gathering) {
+      const _id = created.gathering._id;
+      if (hosts) {
+        await Gathering.addHosts(_id, hosts);
+      }
+      if (invitees) {
+        invitees.map(async (invitee) => await Gathering.invite(user, invitee, _id));
+      }
+      const gathering = await Gathering.getById(_id);
+      return { msg: created.msg, bookmark: gathering };
+    }
+    return { msg: created.msg, bookmark: created.gathering }; //might have to add Response formatting
+  }
 
-  // Adds a new item that can be restricted
-  @Router.post("viewingRestrictions/:item")
-  async addRestrictedItem(session: WebSessionDoc, item: string) {}
+  // Deletes a gathering
+  @Router.delete("/gathering/:_id")
+  async deleteGathering(session: WebSessionDoc, _id: ObjectId) {
+    const user = WebSession.getUser(session);
+    await Gathering.isHost(user, _id);
+    return Gathering.delete(_id);
+  }
 
-  // Deletes an item that is currently being restricted
-  @Router.delete("viewingRestrictions/:item")
-  async deleteRestrictedItem(session: WebSessionDoc, item: string) {}
+  // Update a gathering, such as its hosts or invitees
+  @Router.patch("/gathering/:id")
+  async updateGathering(session: WebSessionDoc, _id: ObjectId, update: Partial<GatheringDoc>) {
+    const user = WebSession.getUser(session);
+    await Gathering.isHost(user, _id);
+    return await Gathering.update(_id, update);
+  }
 
-  // Updates the restricted users to include the user "for"
-  @Router.put("viewingRestrictions/add/:user")
-  async addRestrictedUser(session: WebSessionDoc, user: string) {}
+  // Get a user's invites to gatherings
+  @Router.get("/invites/:username")
+  async getInvites(session: WebSessionDoc) {
+    const user = WebSession.getUser(session);
+    return await Gathering.getInvites({ to: user });
+  }
 
-  // Unrestricts a user by removing them from the restricted users
-  @Router.put("viewingRestrictions/remove/:user")
-  async removeRestrictedUser(session: WebSessionDoc, user: string) {}
+  // Accept an invite
+  @Router.put("/invites/accept/:gathering")
+  async acceptInvitation(session: WebSessionDoc, gathering: ObjectId) {
+    const user = WebSession.getUser(session);
+    return await Gathering.acceptInvite(user, gathering);
+  }
+
+  // Decline an invite
+  @Router.put("/invites/decline/:gathering")
+  async declineInvitation(session: WebSessionDoc, gathering: ObjectId) {
+    const user = WebSession.getUser(session);
+    return await Gathering.declineInvite(user, gathering);
+  }
+
+  // Get messages sent from the current user
+  @Router.get("/messages/sent")
+  async getSentMessages(session: WebSessionDoc) {
+    const user = WebSession.getUser(session);
+    return Message.getBySender(user);
+  }
+
+  // Get messages received by the current user
+  @Router.get("/messages/received")
+  async getReceivedMessages(session: WebSessionDoc) {
+    const user = WebSession.getUser(session);
+    return Message.getByReceiver(user);
+  }
+
+  // Create and send a message to a user
+  @Router.post("/messages")
+  async sendMessage(session: WebSessionDoc, to: ObjectId, content: string) {
+    const user = WebSession.getUser(session);
+    await Friend.isFriend(user, to);
+    const created = await Message.create(user, to, content);
+    return { msg: created.msg, message: await created.message };
+  }
 }
 
 export default getExpressRouter(new Routes());

@@ -1,4 +1,4 @@
-import { ObjectId } from "mongodb";
+import { Filter, ObjectId } from "mongodb";
 import DocCollection, { BaseDoc } from "../framework/doc";
 import { NotAllowedError, NotFoundError } from "./errors";
 
@@ -169,6 +169,13 @@ export default class GatheringConcept {
     if (!gathering.acceptors || !this.hasItem(user, gathering.acceptors)) {
       throw new PendingInviteError(user, _id);
     }
+  }
+
+  async getInvites(query: Filter<InviteDoc>) {
+    const invites = await this.invites.readMany(query, {
+      sort: { dateUpdated: -1 },
+    });
+    return invites;
   }
 
   async invite(from: ObjectId, to: ObjectId, gathering: ObjectId) {

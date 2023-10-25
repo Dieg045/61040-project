@@ -15,7 +15,7 @@ export default class MessageConcept {
   async create(from: ObjectId, to: ObjectId, content: string) {
     const dateCreated = new Date();
     const _id = await this.messages.createOne({ from, to, content, dateCreated });
-    return { msg: "Message successfully created!", post: await this.messages.readOne({ _id }) };
+    return { msg: "Message successfully created!", message: await this.messages.readOne({ _id }) };
   }
 
   async getBySender(user: ObjectId) {

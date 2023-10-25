@@ -5,7 +5,7 @@ import { NotAllowedError, NotFoundError } from "./errors";
 export interface BookmarkDoc extends BaseDoc {
   user: ObjectId;
   name: string;
-  destination: URL;
+  destination: string;
 }
 
 export default class BookmarkConcept {
@@ -24,7 +24,7 @@ export default class BookmarkConcept {
     return bookmarks;
   }
 
-  async create(user: ObjectId, name: string, destination: URL) {
+  async create(user: ObjectId, name: string, destination: string) {
     await this.isAvailableName(user, name);
     const _id = await this.bookmarks.createOne({ user, name, destination });
     return { msg: "Bookmark created successfully!", bookmark: await this.bookmarks.readOne({ _id }) };
@@ -35,19 +35,27 @@ export default class BookmarkConcept {
     return { msg: "Bookmark deleted!" };
   }
 
-  async rename(name: string, _id: ObjectId) {
+  async update(_id: ObjectId, update: Partial<BookmarkDoc>) {
     const bookmark = await this.bookmarks.readOne({ _id });
     if (!bookmark) {
       throw new NotFoundError(`Bookmark ${_id} does not exist!`);
     }
-
-    await this.isAvailableName(bookmark.user, name);
-
-    const update = JSON.parse(`{ $set: { "name" : ${name} } }`);
-
     this.sanitizeUpdate(update);
+    if (update.name) {
+      await this.isAvailableName(bookmark.user, update.name);
+    }
     await this.bookmarks.updateOne({ _id }, update);
     return { msg: "Bookmark updated successfully!" };
+  }
+
+  async isOwner(user: ObjectId, _id: ObjectId) {
+    const bookmark = await this.bookmarks.readOne({ _id });
+    if (!bookmark) {
+      throw new NotFoundError(`Bookmark ${_id} does not exist!`);
+    }
+    if (bookmark.user.toString() !== user.toString()) {
+      throw new BookmarkUserNoMatchError(user, _id);
+    }
   }
 
   private async isAvailableName(user: ObjectId, name: string) {
@@ -73,5 +81,14 @@ export class BookmarkNameAlreadyInUseError extends NotAllowedError {
     public readonly name: string,
   ) {
     super("{0} already has a bookmark named {1}!", user, name);
+  }
+}
+
+export class BookmarkUserNoMatchError extends NotAllowedError {
+  constructor(
+    public readonly user: ObjectId,
+    public readonly _id: ObjectId,
+  ) {
+    super("{0} is not the owner of bookmark {1}!", user, _id);
   }
 }

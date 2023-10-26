@@ -11,7 +11,7 @@ export interface PostOptions {
 export interface PostDoc extends BaseDoc {
   author: ObjectId;
   content: string;
-  options?: PostOptions;
+  options?: PostOptions | null;
 }
 
 export default class PostConcept {

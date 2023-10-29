@@ -23,10 +23,17 @@ export default class GatheringConcept {
   public readonly gatherings = new DocCollection<GatheringDoc>("gatherings");
   public readonly invites = new DocCollection<InviteDoc>("invites");
 
+  async getGatherings(query: Filter<GatheringDoc>) {
+    const posts = await this.gatherings.readMany(query, {
+      sort: { dateUpdated: -1 },
+    });
+    return posts;
+  }
+
   async getById(_id: ObjectId) {
     const gathering = await this.gatherings.readOne({ _id });
     if (gathering === null) {
-      throw new NotFoundError(`Bookmark not found!`);
+      throw new NotFoundError(`Gathering not found!`);
     }
     return gathering;
   }
@@ -39,7 +46,7 @@ export default class GatheringConcept {
   async create(creator: ObjectId, title: string, description: string) {
     await this.isAvailableTitle(creator, title);
     const _id = await this.gatherings.createOne({ creator, title, description, hosts: [creator] });
-    return { msg: "Bookmark created successfully!", gathering: await this.gatherings.readOne({ _id }) };
+    return { msg: "Gathering created successfully!", gathering: await this.gatherings.readOne({ _id }) };
   }
 
   async delete(_id: ObjectId) {
@@ -49,7 +56,7 @@ export default class GatheringConcept {
     }
 
     await this.gatherings.deleteOne({ _id });
-    return { msg: "Bookmark deleted!" };
+    return { msg: "Gathering deleted!" };
   }
 
   async cancel(_id: ObjectId) {
@@ -97,7 +104,7 @@ export default class GatheringConcept {
     return { msg: "Gathering successfully updated!" };
   }
 
-  async addAcceptors(_id: ObjectId, user: ObjectId) {
+  async addAcceptor(_id: ObjectId, user: ObjectId) {
     const gathering = await this.gatherings.readOne({ _id });
     if (!gathering) {
       throw new NotFoundError(`Post ${_id} does not exist!`);
@@ -111,8 +118,7 @@ export default class GatheringConcept {
         newAcceptors.concat(gathering.acceptors);
       }
     }
-    //might need to fix this! Perhaps need to use array instead
-    const update = JSON.parse(`{ $set: { "acceptors" : ${newAcceptors} } }`);
+    const update = { acceptors: newAcceptors };
 
     this.sanitizeUpdate(update);
     await this.gatherings.updateOne({ _id }, update);
@@ -135,12 +141,19 @@ export default class GatheringConcept {
 
       newAcceptors.concat(userFilteredOut);
     }
-    //might need to fix this! Perhaps need to use array instead
-    const update = JSON.parse(`{ $set: { "acceptors" : ${newAcceptors} } }`);
+    const update = { acceptors: newAcceptors };
 
     this.sanitizeUpdate(update);
     await this.gatherings.updateOne({ _id }, update);
     return { msg: "Gathering successfully updated!" };
+  }
+
+  async canView(user: ObjectId, _id: ObjectId) {
+    try {
+      await this.isHost(user, _id);
+    } catch (GatheringHostNotMatchError) {
+      await this.isAcceptor(user, _id);
+    }
   }
 
   async isHost(user: ObjectId, _id: ObjectId) {
@@ -195,8 +208,8 @@ export default class GatheringConcept {
     await this.removeInvite(invite.from, to, gathering);
 
     // Following two can be done in parallel, thus we use `void`
-    void this.invites.createOne({ from: invite.from, to, status: "accepted" });
-    void this.addAcceptors(gathering, to);
+    void this.invites.createOne({ from: invite.from, to, gathering, status: "accepted" });
+    void this.addAcceptor(gathering, to);
     return { msg: "Accepted invite!" };
   }
 
@@ -213,14 +226,14 @@ export default class GatheringConcept {
     await this.removeInvite(invite.from, to, gathering);
 
     // Following two can be done in parallel, thus we use `void`
-    void this.invites.createOne({ from: invite.from, to, status: "declined" });
+    void this.invites.createOne({ from: invite.from, to, gathering, status: "declined" });
     return { msg: "Declined invite." };
   }
 
   async addPost(_id: ObjectId, post: ObjectId) {
     const gathering = await this.gatherings.readOne({ _id });
     if (!gathering) {
-      throw new NotFoundError(`Post ${_id} does not exist!`);
+      throw new NotFoundError(`Gathering ${_id} does not exist!`);
     }
 
     const newPosts = [post]; //might want to make this change in posts too

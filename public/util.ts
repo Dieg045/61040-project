@@ -119,6 +119,96 @@ const operations: operation[] = [
     method: "DELETE",
     fields: { friend: "input" },
   },
+  {
+    name: "Create Bookmark",
+    endpoint: "/api/bookmarks",
+    method: "POST",
+    fields: { name: "input", destination: "input" },
+  },
+  {
+    name: "Delete Bookmark",
+    endpoint: "/api/bookmarks/:name",
+    method: "DELETE",
+    fields: { name: "input" },
+  },
+  {
+    name: "Update Bookmark",
+    endpoint: "/api/bookmarks/:name",
+    method: "PATCH",
+    fields: { name: "input", update: "json" },
+  },
+  {
+    name: "Get Bookmarks",
+    endpoint: "/api/bookmarks",
+    method: "GET",
+    fields: {},
+  },
+  {
+    name: "Create Gathering",
+    endpoint: "/api/gathering",
+    method: "POST",
+    fields: { title: "input", description: "input" },
+  },
+  {
+    name: "Delete Gathering",
+    endpoint: "/api/gathering/:id",
+    method: "DELETE",
+    fields: { id: "input" },
+  },
+  {
+    name: "Update Gathering",
+    endpoint: "/api/gathering/:id",
+    method: "PATCH",
+    fields: { id: "input", update: "json" },
+  },
+  {
+    name: "Get Gathering(s) (empty for all hosted or accepted)",
+    endpoint: "/api/gathering/:id",
+    method: "GET",
+    fields: { id: "input" },
+  },
+  {
+    name: "Invite Users",
+    endpoint: "/api/invites/:to",
+    method: "POST",
+    fields: { to: "input", gathering: "input" },
+  },
+  {
+    name: "Accept Invitation",
+    endpoint: "/api/invites/accept/:gathering",
+    method: "PUT",
+    fields: { gathering: "input" },
+  },
+  {
+    name: "Decline Invitation",
+    endpoint: "/api/invites/decline/:gathering",
+    method: "PUT",
+    fields: { gathering: "input" },
+  },
+  {
+    name: "Get Invites",
+    endpoint: "/api/invites",
+    method: "GET",
+    fields: {},
+  },
+  {
+    name: "Send Message",
+    endpoint: "/api/messages/:to",
+    method: "POST",
+    fields: { to: "input", content: "input" },
+  },
+  {
+    name: "Get Sent Messages",
+    endpoint: "/api/messages/sent",
+    method: "GET",
+    fields: {},
+  },
+  {
+    name: "Get Received Messages",
+    endpoint: "/api/messages/received",
+    method: "GET",
+    fields: {},
+  },
 ];
 
 // Do not edit below here.
@@ -161,10 +251,11 @@ async function request(method: HttpMethod, endpoint: string, params?: unknown) {
 function fieldsToHtml(fields: Record<string, Field>, indent = 0, prefix = ""): string {
   return Object.entries(fields)
     .map(([name, tag]) => {
+      const htmlTag = tag === "json" ? "textarea" : tag;
       return `
         <div class="field" style="margin-left: ${indent}px">
           <label>${name}:
-          ${typeof tag === "string" ? `<${tag} name="${prefix}${name}"></${tag}>` : fieldsToHtml(tag, indent + 10, prefix + name + ".")}
+          ${typeof tag === "string" ? `<${htmlTag} name="${prefix}${name}"></${htmlTag}>` : fieldsToHtml(tag, indent + 10, prefix + name + ".")}
           </label>
         </div>`;
     })
@@ -216,6 +307,15 @@ async function submitEventHandler(e: Event) {
     delete reqData[key];
     return param;
   });
+
+  const op = operations.find((op) => op.endpoint === $endpoint && op.method === $method);
+  for (const [key, val] of Object.entries(reqData)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const type = key.split(".").reduce((obj, key) => obj[key], op?.fields as any);
+    if (type === "json") {
+      reqData[key] = JSON.parse(val as string);
+    }
+  }
 
   const data = prefixedRecordIntoObject(reqData as Record<string, string>);
 

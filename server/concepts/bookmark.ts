@@ -20,12 +20,21 @@ export default class BookmarkConcept {
   }
 
   async getByOwner(user: ObjectId) {
-    const bookmarks = await this.bookmarks.readMany({ owner: user });
+    const bookmarks = await this.bookmarks.readMany({ user });
     return bookmarks;
+  }
+
+  async getByNameAndUser(name: string, user: ObjectId) {
+    const bookmark = await this.bookmarks.readOne({ name, user });
+    if (!bookmark) {
+      throw new NotFoundError(`User ${user} does not have a bookmark named ${name}`);
+    }
+    return bookmark;
   }
 
   async create(user: ObjectId, name: string, destination: string) {
     await this.isAvailableName(user, name);
+    this.isValidDestination(destination);
     const _id = await this.bookmarks.createOne({ user, name, destination });
     return { msg: "Bookmark created successfully!", bookmark: await this.bookmarks.readOne({ _id }) };
   }
@@ -73,6 +82,10 @@ export default class BookmarkConcept {
       }
     }
   }
+
+  private isValidDestination(destination: string) {
+    new URL(destination);
+  }
 }
 
 export class BookmarkNameAlreadyInUseError extends NotAllowedError {
@@ -90,5 +103,11 @@ export class BookmarkUserNoMatchError extends NotAllowedError {
     public readonly _id: ObjectId,
   ) {
     super("{0} is not the owner of bookmark {1}!", user, _id);
+  }
+}
+
+export class InvalidURLError extends NotAllowedError {
+  constructor(public readonly destination: string) {
+    super("{0} is not a valid URL!", destination);
   }
 }

@@ -98,10 +98,18 @@ class Routes {
   }
 
   @Router.patch("/posts/:_id") //done
-  async updatePost(session: WebSessionDoc, _id: ObjectId, update: Partial<PostDoc>) {
+  async updatePost(session: WebSessionDoc, _id: ObjectId, update?: Partial<PostDoc>, restrictedUser?: string) {
     const user = WebSession.getUser(session);
     await Post.isAuthor(user, _id);
-    return await Post.update(_id, update);
+    let result;
+    if (update) {
+      result = await Post.update(_id, update);
+    }
+    if (restrictedUser) {
+      const restrictedUserId = (await User.getUserByUsername(restrictedUser))._id;
+      result = await Post.addRestrictedUser(restrictedUserId, _id);
+    }
+    return result;
   }
 
   @Router.delete("/posts/:_id") //done
@@ -164,7 +172,8 @@ class Routes {
   @Router.get("/bookmarks")
   async getBookmarks(session: WebSessionDoc) {
     const user = WebSession.getUser(session);
-    return await Bookmark.getByOwner(user);
+    const bookmarks = await Bookmark.getByOwner(user);
+    return bookmarks;
   }
 
   // Creates a new bookmark named "name" that directs to "destination" for user
@@ -172,49 +181,52 @@ class Routes {
   async createBookmark(session: WebSessionDoc, name: string, destination: string) {
     const user = WebSession.getUser(session);
     const created = await Bookmark.create(user, name, destination);
-    return { msg: created.msg, bookmark: created.bookmark }; //might have to add Response formatting
+    return { msg: created.msg, bookmark: await created.bookmark }; //might have to add Response formatting
   }
 
   // Deletes user's bookmark with id "bookmark"
-  @Router.delete("/bookmarks/:_id")
-  async deleteBookmark(session: WebSessionDoc, _id: ObjectId) {
+  @Router.delete("/bookmarks/:name")
+  async deleteBookmark(session: WebSessionDoc, name: string) {
     const user = WebSession.getUser(session);
+    const _id = (await Bookmark.getByNameAndUser(name, user))._id;
     await Bookmark.isOwner(user, _id);
     return Bookmark.delete(_id);
   }
 
-  @Router.patch("/bookmarks/:_id")
-  async updateBookmark(session: WebSessionDoc, _id: ObjectId, update: Partial<BookmarkDoc>) {
+  @Router.patch("/bookmarks/:name")
+  async updateBookmark(session: WebSessionDoc, name: string, update: Partial<BookmarkDoc>) {
     const user = WebSession.getUser(session);
+    const _id = (await Bookmark.getByNameAndUser(name, user))._id;
     await Bookmark.isOwner(user, _id);
     return await Bookmark.update(_id, update);
   }
 
+  // Gets all gatherings
+  @Router.get("/gathering")
+  async getGatherings(session: WebSessionDoc) {
+    const user = WebSession.getUser(session);
+    const gatherings = await Gathering.getGatherings({
+      $or: [{ hosts: { $in: [user] } }, { acceptors: { $in: [user] } }],
+    });
+    return await Responses.gatherings(gatherings);
+  }
+
   // Gets a Gathering by ID
   @Router.get("/gathering/:_id")
-  async getGathering(session: WebSessionDoc, _id: ObjectId) {
+  async getGathering(session: WebSessionDoc, _id: string) {
     const user = WebSession.getUser(session);
-    await Gathering.isInvited(user, _id);
-    return await Gathering.getById(_id);
+    const gatheringId = new ObjectId(_id);
+    await Gathering.canView(user, gatheringId);
+    const gathering = await Gathering.getById(gatheringId);
+    return await Responses.gathering(gathering);
   }
 
   // Creates a Gathering
   @Router.post("/gathering")
-  async createGathering(session: WebSessionDoc, title: string, description: string, hosts?: ObjectId[], invitees?: ObjectId[]) {
+  async createGathering(session: WebSessionDoc, title: string, description: string) {
     const user = WebSession.getUser(session);
     const created = await Gathering.create(user, title, description);
-    if (created.gathering) {
-      const _id = created.gathering._id;
-      if (hosts) {
-        await Gathering.addHosts(_id, hosts);
-      }
-      if (invitees) {
-        invitees.map(async (invitee) => await Gathering.invite(user, invitee, _id));
-      }
-      const gathering = await Gathering.getById(_id);
-      return { msg: created.msg, bookmark: gathering };
-    }
-    return { msg: created.msg, bookmark: created.gathering }; //might have to add Response formatting
+    return { msg: created.msg, gathering: await Responses.gathering(created.gathering) }; //might have to add Response formatting
   }
 
   // Deletes a gathering
@@ -226,55 +238,75 @@ class Routes {
   }
 
   // Update a gathering, such as its hosts or invitees
-  @Router.patch("/gathering/:id")
-  async updateGathering(session: WebSessionDoc, _id: ObjectId, update: Partial<GatheringDoc>) {
+  @Router.patch("/gathering/:_id")
+  async updateGathering(session: WebSessionDoc, _id: ObjectId, update: Partial<GatheringDoc>, invitee?: string) {
     const user = WebSession.getUser(session);
     await Gathering.isHost(user, _id);
+    if (invitee) {
+      const inviteeId = (await User.getUserByUsername(invitee))._id;
+      await Gathering.invite(user, inviteeId, _id);
+    }
     return await Gathering.update(_id, update);
   }
 
   // Get a user's invites to gatherings
-  @Router.get("/invites/:username")
+  @Router.get("/invites")
   async getInvites(session: WebSessionDoc) {
     const user = WebSession.getUser(session);
-    return await Gathering.getInvites({ to: user });
+    const invites = await Gathering.getInvites({ to: user });
+    return Responses.invites(invites);
+  }
+
+  @Router.post("/invites/:to")
+  async sendInvite(session: WebSessionDoc, to: string, gathering: string) {
+    const user = WebSession.getUser(session);
+    const toId = (await User.getUserByUsername(to))._id;
+    const gatheringId = new ObjectId(gathering);
+    await Gathering.isHost(user, gatheringId);
+    const created = await Gathering.invite(user, toId, gatheringId);
+    return { msg: created.msg, invite: await Responses.invite(created.invite) };
   }
 
   // Accept an invite
   @Router.put("/invites/accept/:gathering")
-  async acceptInvitation(session: WebSessionDoc, gathering: ObjectId) {
+  async acceptInvitation(session: WebSessionDoc, gathering: string) {
     const user = WebSession.getUser(session);
-    return await Gathering.acceptInvite(user, gathering);
+    const gatheringId = new ObjectId(gathering);
+    return await Gathering.acceptInvite(user, gatheringId);
   }
 
   // Decline an invite
   @Router.put("/invites/decline/:gathering")
-  async declineInvitation(session: WebSessionDoc, gathering: ObjectId) {
+  async declineInvitation(session: WebSessionDoc, gathering: string) {
     const user = WebSession.getUser(session);
-    return await Gathering.declineInvite(user, gathering);
+    const gatheringId = new ObjectId(gathering);
+    return await Gathering.declineInvite(user, gatheringId);
   }
 
   // Get messages sent from the current user
   @Router.get("/messages/sent")
   async getSentMessages(session: WebSessionDoc) {
     const user = WebSession.getUser(session);
-    return Message.getBySender(user);
+    const messages = await Message.getBySender(user);
+    return await Responses.messages(messages);
   }
 
   // Get messages received by the current user
   @Router.get("/messages/received")
   async getReceivedMessages(session: WebSessionDoc) {
     const user = WebSession.getUser(session);
-    return Message.getByReceiver(user);
+    const messages = await Message.getByReceiver(user);
+    return await Responses.messages(messages);
   }
 
   // Create and send a message to a user
-  @Router.post("/messages")
-  async sendMessage(session: WebSessionDoc, to: ObjectId, content: string) {
+  @Router.post("/messages/:to")
+  async sendMessage(session: WebSessionDoc, to: string, content: string) {
     const user = WebSession.getUser(session);
-    await Friend.isFriend(user, to);
-    const created = await Message.create(user, to, content);
-    return { msg: created.msg, message: await created.message };
+    const toId = (await User.getUserByUsername(to))._id;
+    await Friend.isFriend(user, toId);
+    const created = await Message.create(user, toId, content);
+    return { msg: created.msg, message: await Responses.message(created.message) };
   }
 }
 
